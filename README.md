@@ -46,6 +46,43 @@ Highly configurable slideshows for displaying [Immich][immich-github-url] assets
 
 ------
 
+## Fork changes
+
+This fork adds one option on top of upstream: `max_additional_people`.
+
+It limits how many people other than the ones you asked for may appear in an image. Use it
+alongside `people` (or the `person` URL parameter) to keep group shots out of a slideshow that
+is meant to show a single person.
+
+| Value | Meaning |
+| --- | --- |
+| `-1` | Disabled. The default, and how upstream behaves. |
+| `0` | Only images in which nobody but the selected people appear. |
+| `n` | Up to `n` other people may appear alongside the selected ones. |
+
+Faces that Immich has detected but not yet assigned to a person count as additional people, so
+an unnamed stranger in the background is enough for an image to be skipped.
+
+The option has no effect while no people are selected, as there would be nothing to compare
+against. Otherwise it applies to every asset source, so it also narrows albums, dates and tags
+whenever `people` is set.
+
+In `config.yaml`:
+
+```yaml
+people:
+  - "PERSON_ID"
+max_additional_people: 0
+```
+
+As a URL parameter:
+
+```
+https://kiosk.example.com/?person=PERSON_ID&max_additional_people=0
+```
+
+------
+
 ## Support
 If this project has been helpful to you and you wish to support me, you can do so with the button below 🙂.
 
