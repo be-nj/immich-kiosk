@@ -4,7 +4,8 @@
 # webhook and a repository dispatch into damongolding/immich-kiosk-unraid, none of which
 # exist here. This workflow just builds what is on main so the fork can be deployed.
 #
-# The image is tagged :main and :<sha>. Deployments pin the sha, :main is the moving target.
+# The image is tagged :latest and :<sha>. The stack tracks :latest, the sha tag is there to
+# identify and roll back to a specific build.
 name: Fork Image
 
 on:
@@ -52,6 +53,6 @@ jobs:
           --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
           --label "org.opencontainers.image.version=$VERSION" \
           --label "org.opencontainers.image.authors=${{ github.repository_owner }}" \
-          -t "$IMAGE_NAME:main" -t "$IMAGE_NAME:${{ github.sha }}" .
+          -t "$IMAGE_NAME:latest" -t "$IMAGE_NAME:${{ github.sha }}" .
 
           echo "Pushed $IMAGE_NAME:${{ github.sha }} ($VERSION)"
