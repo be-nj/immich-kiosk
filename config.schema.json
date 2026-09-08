@@ -78,6 +78,10 @@
     "require_all_people": {
       "type": "boolean"
     },
+    "max_additional_people": {
+      "type": "integer",
+      "minimum": -1
+    },
     "excluded_people": {
       "type": ["string", "array"],
       "items": {

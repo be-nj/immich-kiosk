@@ -649,6 +649,7 @@ func (a *Asset) isValidAsset(requestID, deviceID string, allowedTypes []AssetTyp
 		a.hasValidFilterExcludeFaces(requestID, deviceID) &&
 		a.hasValidAlbums(requestID, deviceID) &&
 		a.hasValidPeople(requestID, deviceID) &&
+		a.hasValidAdditionalPeople(requestID, deviceID) &&
 		a.hasValidTags(requestID, deviceID)
 }
 
@@ -772,6 +773,50 @@ func (a *Asset) hasValidPeople(requestID, deviceID string) bool {
 	return !slices.ContainsFunc(a.People, func(person Person) bool {
 		return slices.Contains(a.requestConfig.ExcludedPeople, person.ID)
 	})
+}
+
+// hasValidAdditionalPeople counts the people in the asset that were not requested and checks
+// that count against MaxAdditionalPeople. Unassigned faces count too, as they belong to people
+// face recognition has not named yet.
+//
+// A negative MaxAdditionalPeople disables the check, as does a request without people, which
+// leaves nothing to compare against.
+//
+// Parameters:
+//   - requestID: Unique identifier for the request
+//   - deviceID: ID of the device making the request
+//
+// Returns:
+//   - bool: true if the asset holds no more additional people than allowed, false otherwise
+func (a *Asset) hasValidAdditionalPeople(requestID, deviceID string) bool {
+	if a.requestConfig.MaxAdditionalPeople < 0 {
+		return true
+	}
+
+	wanted := slices.DeleteFunc(slices.Clone(a.requestConfig.People), func(personID string) bool {
+		return personID == kiosk.PersonKeywordAll
+	})
+
+	if a.Bucket == kiosk.SourcePerson && a.BucketID != "" {
+		wanted = append(wanted, a.BucketID)
+	}
+
+	if len(wanted) == 0 {
+		return true
+	}
+
+	if len(a.People) == 0 && len(a.UnassignedFaces) == 0 {
+		a.AddFaces(requestID, deviceID)
+	}
+
+	additionalPeople := len(a.UnassignedFaces)
+	for _, person := range a.People {
+		if !slices.Contains(wanted, person.ID) {
+			additionalPeople++
+		}
+	}
+
+	return additionalPeople <= a.requestConfig.MaxAdditionalPeople
 }
 
 func (a *Asset) hasValidPartners() bool {

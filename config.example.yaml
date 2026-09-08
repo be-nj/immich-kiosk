@@ -28,6 +28,9 @@ show_archived: false # Allow assets marked as archived to be displayed.
 people:
   - "PERSON_ID"
 require_all_people: false # When true, only show images containing all specified people together
+# Maximum number of people other than the ones above that may appear in an image.
+# -1 disables the check, 0 only allows images of the people above. Unnamed faces count too.
+max_additional_people: -1
 excluded_people:
   - "PERSON_ID"
 

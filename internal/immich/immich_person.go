@@ -239,6 +239,7 @@ func (a *Asset) RandomAssetOfPerson(personID, requestID, deviceID string, isPref
 		for immichAssetIndex, asset := range immichAssets {
 
 			asset.Bucket = kiosk.SourcePerson
+			asset.BucketID = personID
 			asset.requestConfig = a.requestConfig
 			asset.ctx = a.ctx
 
@@ -259,7 +260,6 @@ func (a *Asset) RandomAssetOfPerson(personID, requestID, deviceID string, isPref
 				cache.Set(apiCacheKey, jsonBytes, a.requestConfig.Duration, a.requestConfig.CacheDuration)
 			}
 
-			asset.BucketID = personID
 			if asset.requestConfig.SelectedUser != "" {
 				asset.BucketID = fmt.Sprintf("%s%s%s", personID, kiosk.MultipleUserIndicator, asset.requestConfig.SelectedUser)
 			}

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/damongolding/immich-kiosk/internal/config"
 	"github.com/damongolding/immich-kiosk/internal/kiosk"
 	"github.com/stretchr/testify/assert"
 )
@@ -643,6 +644,102 @@ func TestIsAnimatedGif(t *testing.T) {
 				t.Errorf("isAnimatedGif() = %v, expected %v",
 					result, tt.expected)
 			}
+		})
+	}
+}
+
+// TestHasValidAdditionalPeople tests the limiting of people appearing in an asset
+// alongside the requested ones
+func TestHasValidAdditionalPeople(t *testing.T) {
+	tests := []struct {
+		name  string
+		asset Asset
+		want  bool
+	}{
+		{
+			name: "Disabled",
+			asset: Asset{
+				People: []Person{{ID: "wanted"}, {ID: "stranger"}},
+				requestConfig: config.Config{
+					People:              []string{"wanted"},
+					MaxAdditionalPeople: -1,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "No people requested",
+			asset: Asset{
+				People: []Person{{ID: "stranger"}},
+				requestConfig: config.Config{
+					MaxAdditionalPeople: 0,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Only requested people",
+			asset: Asset{
+				People: []Person{{ID: "wanted"}},
+				requestConfig: config.Config{
+					People:              []string{"wanted"},
+					MaxAdditionalPeople: 0,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "One too many people",
+			asset: Asset{
+				People: []Person{{ID: "wanted"}, {ID: "stranger"}},
+				requestConfig: config.Config{
+					People:              []string{"wanted"},
+					MaxAdditionalPeople: 0,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "One additional person allowed",
+			asset: Asset{
+				People: []Person{{ID: "wanted"}, {ID: "stranger"}},
+				requestConfig: config.Config{
+					People:              []string{"wanted"},
+					MaxAdditionalPeople: 1,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Unassigned faces count as additional people",
+			asset: Asset{
+				People:          []Person{{ID: "wanted"}},
+				UnassignedFaces: []Face{{ID: "face"}},
+				requestConfig: config.Config{
+					People:              []string{"wanted"},
+					MaxAdditionalPeople: 0,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "Person bucket picked from all people",
+			asset: Asset{
+				People:   []Person{{ID: "picked"}},
+				Bucket:   kiosk.SourcePerson,
+				BucketID: "picked",
+				requestConfig: config.Config{
+					People:              []string{kiosk.PersonKeywordAll},
+					MaxAdditionalPeople: 0,
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, test.asset.hasValidAdditionalPeople("", ""), "Unexpected hasValidAdditionalPeople value")
 		})
 	}
 }

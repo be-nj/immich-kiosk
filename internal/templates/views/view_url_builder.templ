@@ -101,6 +101,7 @@ templ URLBuilderForm(c config.Config, d common.URLViewData, extended bool) {
 					}
 					@URLBuilderRadio("Require all people", "require_all_people", "Only show images where all selected people appear together.", "true", "true", "false", "false")
 					if extended {
+						@URLBuilderNumber("Max additional people", "max_additional_people", "How many people other than the selected ones may appear in an image. -1 disables the check.", -1, 0, strconv.FormatInt(int64(c.MaxAdditionalPeople), 10))
 						@URLBuilderMultiSelect("Excluded people", "excluded_people", "Person or people you want to exclude.") {
 							for _, p := range d.People {
 								<option value={ p.ID }>{ p.Name }</option>

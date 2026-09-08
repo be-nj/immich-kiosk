@@ -320,6 +320,9 @@ type Config struct {
 	People           []string `json:"people" yaml:"people" mapstructure:"people" query:"person" form:"person" default:"[]" redact:"true"`
 	RequireAllPeople bool     `json:"requireAllPeople" yaml:"require_all_people" mapstructure:"require_all_people" query:"require_all_people" form:"require_all_people" default:"false"`
 	ExcludedPeople   []string `json:"excludedPeople" yaml:"excluded_people" mapstructure:"excluded_people" query:"exclude_person" form:"exclude_person" default:"[]" redact:"true"`
+	// MaxAdditionalPeople limits how many people other than the requested ones may appear
+	// in an asset. -1 disables the check, 0 only allows the requested people.
+	MaxAdditionalPeople int `json:"maxAdditionalPeople" yaml:"max_additional_people" mapstructure:"max_additional_people" query:"max_additional_people" form:"max_additional_people" default:"-1"`
 
 	// IDs of album(s) to display
 	Albums []string `json:"albums" yaml:"albums" mapstructure:"albums" query:"album" form:"album" default:"[]" redact:"true"`
