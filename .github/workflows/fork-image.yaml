@@ -1,0 +1,57 @@
+# Builds the image for this fork and pushes it to ghcr.io/<owner>/immich-kiosk.
+#
+# Upstream's ghcr-release.yaml only runs on tags and expects a GitHub release, a Discord
+# webhook and a repository dispatch into damongolding/immich-kiosk-unraid, none of which
+# exist here. This workflow just builds what is on main so the fork can be deployed.
+#
+# The image is tagged :main and :<sha>. Deployments pin the sha, :main is the moving target.
+name: Fork Image
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history so the version can be derived from the upstream tag this fork sits on.
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          set -eu
+          IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/immich-kiosk
+          VERSION=$(git describe --tags --always)
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          docker buildx build --build-arg VERSION="$VERSION" \
+          --platform linux/amd64 \
+          --push \
+          --label "org.opencontainers.image.created=$TIMESTAMP" \
+          --label "org.opencontainers.image.revision=${{ github.sha }}" \
+          --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+          --label "org.opencontainers.image.version=$VERSION" \
+          --label "org.opencontainers.image.authors=${{ github.repository_owner }}" \
+          -t "$IMAGE_NAME:main" -t "$IMAGE_NAME:${{ github.sha }}" .
+
+          echo "Pushed $IMAGE_NAME:${{ github.sha }} ($VERSION)"
