@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/damongolding/immich-kiosk/internal/config"
 	"github.com/damongolding/immich-kiosk/internal/kiosk"
 	"github.com/stretchr/testify/assert"
 )
@@ -643,6 +644,92 @@ func TestIsAnimatedGif(t *testing.T) {
 				t.Errorf("isAnimatedGif() = %v, expected %v",
 					result, tt.expected)
 			}
+		})
+	}
+}
+
+// TestChildIDsFromStacks tests that a stack listing is reduced to the assets
+// hidden behind a stack's primary
+func TestChildIDsFromStacks(t *testing.T) {
+	tests := []struct {
+		name   string
+		stacks Stacks
+		want   []string
+	}{
+		{
+			name:   "no stacks",
+			stacks: Stacks{},
+			want:   []string{},
+		},
+		{
+			name: "a pair keeps only the primary",
+			stacks: Stacks{
+				{
+					ID:             "stack-1",
+					PrimaryAssetID: "raw",
+					Assets:         []StackAsset{{ID: "raw"}, {ID: "jpeg"}},
+				},
+			},
+			want: []string{"jpeg"},
+		},
+		{
+			name: "a burst of five keeps only the primary",
+			stacks: Stacks{
+				{
+					ID:             "stack-1",
+					PrimaryAssetID: "burst-3",
+					Assets: []StackAsset{
+						{ID: "burst-1"}, {ID: "burst-2"}, {ID: "burst-3"},
+						{ID: "burst-4"}, {ID: "burst-5"},
+					},
+				},
+			},
+			want: []string{"burst-1", "burst-2", "burst-4", "burst-5"},
+		},
+		{
+			name: "children are collected across stacks",
+			stacks: Stacks{
+				{ID: "stack-1", PrimaryAssetID: "a1", Assets: []StackAsset{{ID: "a1"}, {ID: "a2"}}},
+				{ID: "stack-2", PrimaryAssetID: "b1", Assets: []StackAsset{{ID: "b1"}, {ID: "b2"}}},
+			},
+			want: []string{"a2", "b2"},
+		},
+		{
+			name: "a primary missing from its own asset list is not a child",
+			stacks: Stacks{
+				{ID: "stack-1", PrimaryAssetID: "gone", Assets: []StackAsset{{ID: "a1"}}},
+			},
+			want: []string{"a1"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			children := childIDsFromStacks(test.stacks)
+
+			got := make([]string, 0, len(children))
+			for id := range children {
+				got = append(got, id)
+			}
+			slices.Sort(got)
+
+			assert.Equal(t, test.want, got)
+		})
+	}
+}
+
+// TestHasValidStack tests that asking for stack children skips the lookup and
+// lets every asset through
+func TestHasValidStack(t *testing.T) {
+	for _, assetID := range []string{"primary", "child", "loose"} {
+		t.Run(assetID, func(t *testing.T) {
+			asset := Asset{
+				ID:            assetID,
+				requestConfig: config.Config{ShowStackChildren: true},
+			}
+
+			// No API call is made, so an unreachable Immich would still pass here.
+			assert.True(t, asset.hasValidStack("", ""))
 		})
 	}
 }

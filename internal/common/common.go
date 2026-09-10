@@ -157,7 +157,8 @@ type URLBuilderRequest struct {
 	ShowMemories     *bool    `form:"memories" url:"memories,omitempty"`
 	PastMemoryDays   *uint64  `form:"past_memory_days" url:"past_memory_days,omitempty"`
 
-	ShowArchived *bool `form:"show_archived" url:"show_archived,omitempty"`
+	ShowArchived      *bool `form:"show_archived" url:"show_archived,omitempty"`
+	ShowStackChildren *bool `form:"show_stack_children" url:"show_stack_children,omitempty"`
 
 	// Video
 	ShowVideos         *bool   `form:"show_videos" url:"show_videos,omitempty"`

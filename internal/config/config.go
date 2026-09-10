@@ -333,6 +333,9 @@ type Config struct {
 	// ShowArchived allow archived image to be displayed
 	ShowArchived bool `json:"showArchived" yaml:"show_archived" mapstructure:"show_archived" query:"show_archived" form:"show_archived" default:"false"`
 
+	// ShowStackChildren allow the non-primary assets of a stack to be displayed
+	ShowStackChildren bool `json:"showStackChildren" yaml:"show_stack_children" mapstructure:"show_stack_children" query:"show_stack_children" form:"show_stack_children" default:"false"`
+
 	// IDs of people to display
 	People           []string `json:"people" yaml:"people" mapstructure:"people" query:"person" form:"person" default:"[]" redact:"true"`
 	RequireAllPeople bool     `json:"requireAllPeople" yaml:"require_all_people" mapstructure:"require_all_people" query:"require_all_people" form:"require_all_people" default:"false"`
