@@ -514,3 +514,39 @@ func TestConfig_checkIDs(t *testing.T) {
 		})
 	}
 }
+
+// TestShowStackChildrenOverride tests that stack handling can be set per URL,
+// which is how kiosk instances are usually configured
+func TestShowStackChildrenOverride(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  bool
+	}{
+		{name: "absent leaves the default", query: "", want: false},
+		{name: "true turns children on", query: "true", want: true},
+		{name: "false turns children off", query: "false", want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c := New()
+
+			e := echo.New()
+
+			q := make(url.Values)
+			if test.query != "" {
+				q.Add("show_stack_children", test.query)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/?"+q.Encode(), nil)
+			rec := httptest.NewRecorder()
+			echoContext := e.NewContext(req, rec)
+
+			err := c.ConfigWithOverrides(echoContext.QueryParams(), echoContext)
+			assert.NoError(t, err, "ConfigWithOverrides should not return an error")
+
+			assert.Equal(t, test.want, c.ShowStackChildren)
+		})
+	}
+}

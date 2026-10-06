@@ -240,6 +240,11 @@ func (a *Asset) fetchAssets(requestID, deviceID string, requestBody SearchRandom
 		return nil, url.URL{}, err
 	}
 
+	// Ask for every member of a stack and let hasValidStack decide which of them
+	// may be shown. withStacked false is no use as a primary-only switch: Immich
+	// reads it as "no stacked assets at all" and drops the primaries too.
+	requestBody.WithStacked = true
+
 	if filterNewest {
 		requestBody.Size = a.requestConfig.FilterNewest
 	}
@@ -643,11 +648,31 @@ func (a *Asset) isValidAsset(requestID, deviceID string, allowedTypes []AssetTyp
 	return a.hasValidBasicProperties(allowedTypes, wantedRatio) &&
 		a.hasValidFilterDate() &&
 		a.hasValidPartners() &&
+		a.hasValidStack(requestID, deviceID) &&
 		a.hasValidFilterExcludeFaces(requestID, deviceID) &&
 		a.hasValidAlbums(requestID, deviceID) &&
 		a.hasValidPeople(requestID, deviceID) &&
 		a.hasValidAdditionalPeople(requestID, deviceID) &&
 		a.hasValidTags(requestID, deviceID)
+}
+
+// hasValidStack checks whether the asset is a stack child that should be
+// skipped. With ShowStackChildren off only the primary of a stack is eligible,
+// so a burst or a raw and jpeg pair contributes one photo instead of coming
+// round several times in a row.
+//
+// Parameters:
+//   - requestID: Unique identifier for the request
+//   - deviceID: ID of the device making the request
+//
+// Returns:
+//   - bool: true if the asset may be shown, false if it is a skipped stack child
+func (a *Asset) hasValidStack(requestID, deviceID string) bool {
+	if a.requestConfig.ShowStackChildren {
+		return true
+	}
+
+	return !a.stackChildIDs(requestID, deviceID)[a.ID]
 }
 
 // hasValidBasicProperties checks basic asset properties including type,

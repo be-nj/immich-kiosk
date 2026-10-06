@@ -23,6 +23,9 @@ burn_in_opacity: 70 # The opacity the UI will dip to, as a percentage.
 
 ## Asset sources
 show_archived: false # Allow assets marked as archived to be displayed.
+show_stack_children: false # Allow the non-primary assets of a stack to be displayed.
+# Leaving this false needs the stack.read permission on the Immich API key. Without it
+# the stack listing cannot be read and every stacked asset is shown, as if set to true.
 
 ## ID(s) of person or people to display
 people:
