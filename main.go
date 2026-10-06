@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +33,7 @@ import (
 	"github.com/damongolding/immich-kiosk/internal/i18n"
 	"github.com/damongolding/immich-kiosk/internal/immich"
 	"github.com/damongolding/immich-kiosk/internal/routes"
+	"github.com/damongolding/immich-kiosk/internal/templates/partials"
 	"github.com/damongolding/immich-kiosk/internal/utils"
 	"github.com/damongolding/immich-kiosk/internal/video"
 	"github.com/damongolding/immich-kiosk/internal/weather"
@@ -39,8 +41,8 @@ import (
 
 const (
 	supportedImmichVersionMajor = 3
-	supportedImmichVersionMinor = 0
-	supportedImmichVersionPatch = 3
+	supportedImmichVersionMinor = 2
+	supportedImmichVersionPatch = 0
 )
 
 // version current build version number
@@ -59,6 +61,15 @@ func init() {
 	routes.KioskVersion = version
 	config.SchemaJSON = SchemaJSON
 	i18n.LocaleFS = localeFS
+
+	bg, err := public.ReadFile("frontend/public/assets/images/noise-lite.png")
+	if err != nil {
+		log.Error(err)
+	}
+	partials.BGNoiseURI = fmt.Sprintf(
+		"data:image/png;base64,%s",
+		base64.StdEncoding.EncodeToString(bg),
+	)
 }
 
 // main initializes and starts the Immich Kiosk web server, sets up configuration, middleware, routes, and manages graceful shutdown.
@@ -112,7 +123,10 @@ func main() {
 		cache.DemoMode = true
 	}
 
-	if !versionCheck(c.Context(), baseConfig.ImmichURL) {
+	var immichVersion string
+	var versionOK bool
+	immichVersion, versionOK = versionCheck(c.Context(), baseConfig.ImmichURL)
+	if !versionOK {
 		os.Exit(1)
 	}
 
@@ -162,12 +176,14 @@ func main() {
 	e.FileFS("/assets/js/kiosk.*.js", "frontend/public/assets/js/kiosk.js", public, StaticCacheMiddlewareWithConfig(baseConfig))
 	e.FileFS("/assets/js/url-builder.*.js", "frontend/public/assets/js/url-builder.js", public, StaticCacheMiddlewareWithConfig(baseConfig))
 
+	e.GET("/assets/js/sw.js", routes.ServiceWorker(baseConfig, public))
+
 	// serve embdedd staic assets
 	e.StaticFS("/assets", echo.MustSubFS(public, "frontend/public/assets"))
 
 	if !baseConfig.Kiosk.DisableConfigEndpoint {
 		e.GET("/config", func(c *echo.Context) error {
-			return c.String(http.StatusOK, baseConfig.SanitizedYaml())
+			return c.String(http.StatusOK, baseConfig.SanitizedYaml(immichVersion))
 		})
 	}
 
@@ -176,6 +192,8 @@ func main() {
 	e.GET("/health", func(c *echo.Context) error {
 		return c.String(http.StatusOK, "OK")
 	})
+
+	e.GET("/recover", routes.Recovering(baseConfig, &public))
 
 	if baseConfig.Kiosk.EnableURLBuilder {
 		e.GET("/url-builder", routes.URLBuilderPage(baseConfig, c, false))
@@ -409,14 +427,15 @@ func healthCheck() int {
 	return 0
 }
 
-func versionCheck(c context.Context, immichURL string) bool {
+func versionCheck(c context.Context, immichURL string) (string, bool) {
 	immich.HTTPClient.Timeout = time.Second * 20
 	immichVersion, immichVersionErr := immich.Version(c, immichURL)
+	var iv string
 	if immichVersionErr != nil {
 		log.Error("Failed to get Immich version. Skipping version check.", "err", immichVersionErr)
 	} else {
 		sv := fmt.Sprintf("%d.%d.%d", supportedImmichVersionMajor, supportedImmichVersionMinor, supportedImmichVersionPatch)
-		iv := fmt.Sprintf("%d.%d.%d", immichVersion.Major, immichVersion.Minor, immichVersion.Patch)
+		iv = fmt.Sprintf("%d.%d.%d", immichVersion.Major, immichVersion.Minor, immichVersion.Patch)
 
 		unsupported := immichVersion.Major < supportedImmichVersionMajor ||
 			(immichVersion.Major == supportedImmichVersionMajor && immichVersion.Minor < supportedImmichVersionMinor) ||
@@ -424,9 +443,9 @@ func versionCheck(c context.Context, immichURL string) bool {
 
 		if unsupported {
 			log.Error("Immich version not supported", "Immich version", iv, "supported version", sv)
-			return false
+			return iv, false
 		}
 	}
 
-	return true
+	return iv, true
 }

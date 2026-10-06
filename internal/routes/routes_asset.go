@@ -60,6 +60,7 @@ func NewAsset(baseConfig *config.Config, com *common.Common) echo.HandlerFunc {
 		}
 
 		requestCtx := common.CopyContext(c)
+		requestCtx.Ctx = com.Context()
 
 		// get and use prefetch data (if found)
 		if requestConfig.Kiosk.PreFetch {
@@ -212,13 +213,14 @@ func ImageWithID(baseConfig *config.Config, com *common.Common) echo.HandlerFunc
 
 		if requestConfig.UseOriginalImage {
 			if assetInfoErr := immichAsset.AssetInfo(requestID, ""); assetInfoErr != nil {
-				log.Error(requestID, "error getting asset info", "imageID", imageID, "error", assetInfoErr)
+				log.Error(requestID, "getting asset info", "imageID", imageID, "error", assetInfoErr)
 				return assetInfoErr
 			}
 		}
 
 		imgBytes, _, previewErr := immichAsset.ImagePreview()
 		if previewErr != nil {
+			log.Error(requestID, "getting image preview", "imageID", imageID, "error", previewErr)
 			return echo.NewHTTPError(http.StatusBadRequest, "unable to retrieve image")
 		}
 
@@ -341,8 +343,12 @@ func LikeAsset(baseConfig *config.Config, com *common.Common, setAssetAsLiked bo
 
 		var eg error
 
+		if slices.Contains(requestConfig.MoreInfo.LikeButtonAction, kiosk.ButtonActionBoth) {
+			requestConfig.MoreInfo.LikeButtonAction = []string{kiosk.LikeButtonActionAlbum, kiosk.LikeButtonActionFavorite}
+		}
+
 		// Favourite Asset
-		if slices.Contains(requestConfig.LikeButtonAction, kiosk.LikeButtonActionFavorite) {
+		if slices.Contains(requestConfig.MoreInfo.LikeButtonAction, kiosk.LikeButtonActionFavorite) {
 			favouriteErr := immichAsset.FavouriteStatus(requestData.DeviceID, setAssetAsLiked)
 			if favouriteErr != nil {
 				log.Error("favouriting asset", "assetID", assetID, "error", favouriteErr)
@@ -351,7 +357,7 @@ func LikeAsset(baseConfig *config.Config, com *common.Common, setAssetAsLiked bo
 		}
 
 		// add asset to kiosk liked album
-		if slices.Contains(requestConfig.LikeButtonAction, kiosk.LikeButtonActionAlbum) {
+		if slices.Contains(requestConfig.MoreInfo.LikeButtonAction, kiosk.LikeButtonActionAlbum) {
 			switch setAssetAsLiked {
 			case true:
 				addErr := immichAsset.AddToKioskLikedAlbum(requestID, requestData.DeviceID)
@@ -437,7 +443,11 @@ func HideAsset(baseConfig *config.Config, com *common.Common, hideAsset bool) ec
 
 		var eg error
 
-		if slices.Contains(requestConfig.HideButtonAction, kiosk.HideButtonActionTag) {
+		if slices.Contains(requestConfig.MoreInfo.HideButtonAction, kiosk.ButtonActionBoth) {
+			requestConfig.MoreInfo.HideButtonAction = []string{kiosk.HideButtonActionTag, kiosk.HideButtonActionArchive}
+		}
+
+		if slices.Contains(requestConfig.MoreInfo.HideButtonAction, kiosk.HideButtonActionTag) {
 			tag := immich.Tag{
 				Name: tagName,
 			}
@@ -458,7 +468,7 @@ func HideAsset(baseConfig *config.Config, com *common.Common, hideAsset bool) ec
 			}
 		}
 
-		if slices.Contains(requestConfig.HideButtonAction, kiosk.HideButtonActionArchive) {
+		if slices.Contains(requestConfig.MoreInfo.HideButtonAction, kiosk.HideButtonActionArchive) {
 			archivedErr := immichAsset.ArchiveStatus(requestData.DeviceID, hideAsset)
 			if archivedErr != nil {
 				log.Error("archiving asset", "assetID", assetID, "error", archivedErr)

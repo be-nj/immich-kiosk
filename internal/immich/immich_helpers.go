@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/log/v2"
@@ -32,7 +33,7 @@ func immichAPIFail[T APIResponse](value T, err error, body []byte, apiURL string
 	var immichError ErrorResponse
 	errorUnmarshalErr := json.Unmarshal(body, &immichError)
 	if errorUnmarshalErr != nil {
-		log.Error("Couldn't read error", "body", string(body), "url", apiURL)
+		log.Error("Couldn't read error", "err", errorUnmarshalErr, "body", string(body), "url", utils.TruncateAfter(apiURL, "?"))
 		return value, apiURL, err
 	}
 	log.Errorf("%s : %v", immichError.Message, immichError.Errors)
@@ -56,7 +57,7 @@ func withImmichAPICache[T APIResponse](immichAPICall apiCall, requestID, deviceI
 		apiCacheKey := cache.APICacheKey(apiURL, deviceID, requestConfig.SelectedUser)
 
 		if apiData, found := cache.Get(apiCacheKey); found {
-			log.Debug(strings.TrimSpace(requestID+" Cache hit"), "url", apiURL)
+			log.Debug(strings.TrimSpace(requestID+" Cache hit"), "url", utils.TruncateAfter(apiURL, "?"))
 			data, ok := apiData.([]byte)
 			if !ok {
 				return nil, contentType, usingCache, errors.New("withImmichAPICache: cache data type assertion failed")
@@ -72,21 +73,20 @@ func withImmichAPICache[T APIResponse](immichAPICall apiCall, requestID, deviceI
 		apiBody, contentType, _, err := immichAPICall(ctx, method, apiURL, body)
 		if err != nil {
 			log.Error(err)
-			return nil, contentType, usingCache, err
+			return apiBody, contentType, usingCache, err
 		}
 
 		// Unpack api json into struct which discards data we don't use (for smaller cache size)
 		err = json.Unmarshal(apiBody, &jsonShape)
 		if err != nil {
-			log.Error(err, "body", string(apiBody))
-			return nil, contentType, usingCache, err
+			return apiBody, contentType, usingCache, err
 		}
 
 		// get bytes and store in cache
 		jsonBytes, err := json.Marshal(jsonShape)
 		if err != nil {
 			log.Error(err)
-			return nil, contentType, usingCache, err
+			return apiBody, contentType, usingCache, err
 		}
 
 		cache.Set(apiCacheKey, jsonBytes, requestConfig.Duration, requestConfig.CacheDuration)
@@ -240,18 +240,15 @@ func (a *Asset) fetchAssets(requestID, deviceID string, requestBody SearchRandom
 		return nil, url.URL{}, err
 	}
 
-	filterDate(&requestBody, a.requestConfig.FilterDate)
-	filterFavorites(&requestBody, a.requestConfig.FilterFavorites)
-
 	if filterNewest {
 		requestBody.Size = a.requestConfig.FilterNewest
 	}
 
 	queries, _ := query.Values(requestBody)
 
-	apiPath := "api/search/random"
+	apiPath := SearchRandomEndpoint
 	if filterNewest {
-		apiPath = MetadataEndpoint
+		apiPath = SearchMetadataEndpoint
 	}
 
 	apiURL := url.URL{
@@ -902,12 +899,16 @@ type PaginatedMetadataResponse struct {
 	URL    string  `json:"url"`
 }
 
+// fetchPaginatedMetadata fetches metadata for a paginated request, combining all pages into a single response.
+// runs synchronously.
 func (a *Asset) fetchPaginatedMetadata(u *url.URL, requestBody SearchRandomBody, requestID string, deviceID string) (PaginatedMetadataResponse, error) {
 	res := PaginatedMetadataResponse{}
 
+	page := 1
+
 	for {
 
-		if requestBody.Page > MaxPages {
+		if page > MaxPages {
 			log.Warn(requestID + " Reached maximum page count when fetching Metadata")
 			break
 		}
@@ -920,7 +921,7 @@ func (a *Asset) fetchPaginatedMetadata(u *url.URL, requestBody SearchRandomBody,
 		apiURL := url.URL{
 			Scheme:   u.Scheme,
 			Host:     u.Host,
-			Path:     MetadataEndpoint,
+			Path:     SearchMetadataEndpoint,
 			RawQuery: queries.Encode(),
 		}
 
@@ -945,11 +946,13 @@ func (a *Asset) fetchPaginatedMetadata(u *url.URL, requestBody SearchRandomBody,
 
 		res.Assets = append(res.Assets, response.Assets.Items...)
 
-		if response.Assets.NextPage == "" {
+		if response.Assets.NextCursor == "" {
 			break
 		}
 
-		requestBody.Page++
+		requestBody.Cursor = response.Assets.NextCursor
+
+		page++
 	}
 
 	return res, nil
@@ -967,7 +970,7 @@ func paginatedCache(u *url.URL, requestBody *SearchRandomBody, deviceID, selecte
 	apiURL := url.URL{
 		Scheme:   u.Scheme,
 		Host:     u.Host,
-		Path:     MetadataEndpoint,
+		Path:     SearchMetadataEndpoint,
 		RawQuery: queries.Encode(),
 	}
 
@@ -995,33 +998,135 @@ func paginatedCache(u *url.URL, requestBody *SearchRandomBody, deviceID, selecte
 	return PaginatedMetadataResponse{}, apiURL.String(), false
 }
 
-// fetchPaginatedMetadataWithCache fetches paginated asset metadata, using the cache
-// where possible. On a cache miss it calls fetchPaginatedMetadata, serialises the
-// result to JSON, and stores it in the cache for subsequent requests.
+// fetchPaginatedMetadataWithCache fetches paginated asset metadata, using
+// the cache where possible. On a miss it fetches page one synchronously
+// and returns immediately; if more pages remain it continues fetching
+// them in the background and amends the cache once the full set is in,
+// under the same key a synchronous fetch would have used.
 func (a *Asset) fetchPaginatedMetadataWithCache(u *url.URL, requestBody SearchRandomBody, requestID string, deviceID string) (PaginatedMetadataResponse, error) {
 	cacheData, apiURL, cacheHit := paginatedCache(u, &requestBody, deviceID, a.requestConfig.SelectedUser)
 	if cacheHit {
 		return cacheData, nil
 	}
 
-	res, err := a.fetchPaginatedMetadata(u, requestBody, requestID, deviceID)
+	firstPageAssets, nextCursor, err := a.fetchMetadataPage(a.ctx, u, requestBody, requestID, deviceID)
 	if err != nil {
-		return res, err
+		return PaginatedMetadataResponse{}, err
 	}
 
-	res.URL = apiURL
-
-	jsonBytes, marshalErr := json.Marshal(res)
-	if marshalErr != nil {
-		log.Error("Failed to marshal assetsToCache", "error", marshalErr)
-		return res, marshalErr
+	res := PaginatedMetadataResponse{
+		Assets: firstPageAssets,
+		URL:    apiURL,
 	}
+
+	a.cachePaginatedMetadata(apiURL, deviceID, res)
+
+	if nextCursor == "" {
+		return res, nil
+	}
+
+	fetcher := New(a.ctx, a.requestConfig)
+
+	requestBody.Cursor = nextCursor
+	go fetcher.backfillPaginatedMetadata(u, requestBody, requestID, deviceID, apiURL)
+
+	return res, nil
+}
+
+// backfillPaginatedMetadata continues fetching remaining pages after the
+// caller has already received page one, then writes the merged result to
+// the cache.
+func (a *Asset) backfillPaginatedMetadata(u *url.URL, requestBody SearchRandomBody, requestID string, deviceID string, apiURL string) {
+	defer log.Debug(requestID+" backfillPaginatedMetadata completed", "album(s)", requestBody.Filter.AlbumIDs)
+
+	page := 2
+
+	assets := []Asset{}
+
+	for {
+
+		if page > MaxPages {
+			log.Warn("reached maximum page count when backfilling Metadata")
+			break
+		}
+
+		pageAssets, nextCursor, err := a.fetchMetadataPage(a.ctx, u, requestBody, requestID, deviceID)
+		if err != nil {
+			log.Warn("background pagination backfill: fetchMetadataPage", "page", page, "cursor", requestBody.Cursor, "album(s)", requestBody.Filter.AlbumIDs, "error", err)
+			return
+		}
+
+		assets = append(assets, pageAssets...)
+
+		if nextCursor == "" {
+			break
+		}
+
+		requestBody.Cursor = nextCursor
+		page++
+	}
+
+	a.cachePaginatedMetadata(apiURL, deviceID, PaginatedMetadataResponse{
+		Assets: assets,
+		URL:    apiURL,
+	})
+}
+
+// fetchMetadataPage fetches a single page of metadata.
+func (a *Asset) fetchMetadataPage(ctx context.Context, u *url.URL, requestBody SearchRandomBody, requestID string, deviceID string) ([]Asset, string, error) {
+	var response SearchMetadataResponse
+
+	// convert body to queries so url is unique and can be cached
+	queries, _ := query.Values(requestBody)
+
+	apiURL := url.URL{
+		Scheme:   u.Scheme,
+		Host:     u.Host,
+		Path:     SearchMetadataEndpoint,
+		RawQuery: queries.Encode(),
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		_, _, err = immichAPIFail([]Asset(nil), err, nil, apiURL.String())
+		return nil, "", err
+	}
+
+	immichAPICall := withImmichAPICache(a.immichAPICall, requestID, deviceID, a.requestConfig, response)
+	apiBody, _, _, err := immichAPICall(ctx, http.MethodPost, apiURL.String(), jsonBody)
+	if err != nil {
+		_, _, err = immichAPIFail(response, err, apiBody, apiURL.String())
+		return nil, "", err
+	}
+
+	if err = json.Unmarshal(apiBody, &response); err != nil {
+		_, _, err = immichAPIFail(response, err, apiBody, apiURL.String())
+		return nil, "", err
+	}
+
+	return response.Assets.Items, response.Assets.NextCursor, nil
+}
+
+// cachePaginatedMetadata marshals and stores a PaginatedMetadataResponse
+// under an already-computed cache key (see paginatedCache — apiURL here
+// is expected to already have PaginationComplete=true baked in).
+func (a *Asset) cachePaginatedMetadata(apiURL string, deviceID string, res PaginatedMetadataResponse) {
+	paginationCacheMutex.Lock()
+	defer paginationCacheMutex.Unlock()
 
 	cacheKey := cache.APICacheKey(apiURL, deviceID, a.requestConfig.SelectedUser)
 
-	cache.Set(cacheKey, jsonBytes, a.requestConfig.Duration, a.requestConfig.CacheDuration)
+	err := appendToPaginatedCache(cacheKey, res, a.requestConfig.Duration, a.requestConfig.CacheDuration)
+	if err != nil {
 
-	return res, nil
+		jsonBytes, marshalErr := json.Marshal(res)
+		if marshalErr != nil {
+			log.Error("marshal assetsToCache", "error", err)
+			return
+		}
+
+		cache.Set(cacheKey, jsonBytes, a.requestConfig.Duration, a.requestConfig.CacheDuration)
+	}
 }
 
 func (a *Asset) updateAsset(deviceID string, requestBody UpdateAssetBody) error {
@@ -1082,4 +1187,76 @@ func AlbumOrder(albumAssetsOrder string) AssetOrder {
 	default:
 		return Rand
 	}
+}
+
+var paginationCacheMutex = &sync.Mutex{}
+
+func removeAssetFromPaginatedCache(key string, assetID string, deviceDuration, cacheDuration int) error {
+	paginationCacheMutex.Lock()
+	defer paginationCacheMutex.Unlock()
+
+	c := PaginatedMetadataResponse{}
+
+	var data any
+	var found bool
+
+	if data, found = cache.Get(key); !found {
+		return errors.New("cache item not found")
+	}
+
+	bytesData, ok := data.([]byte)
+	if !ok {
+		return errors.New("cache data is not a byte slice")
+	}
+	if err := json.Unmarshal(bytesData, &c); err != nil {
+		return errors.New("unmarshal cache data")
+	}
+
+	for i, asset := range c.Assets {
+		if asset.ID == assetID {
+			c.Assets = slices.Delete(c.Assets, i, i+1)
+			break
+		}
+	}
+
+	jsonBytes, marshalErr := json.Marshal(c)
+	if marshalErr != nil {
+		return marshalErr
+	}
+
+	// replace with cache minus used asset
+	cache.Set(key, jsonBytes, deviceDuration, cacheDuration)
+
+	return nil
+}
+
+func appendToPaginatedCache(key string, dataToAdd PaginatedMetadataResponse, deviceDuration, cacheDuration int) error {
+	c := PaginatedMetadataResponse{}
+
+	var data any
+	var found bool
+
+	if data, found = cache.Get(key); !found {
+		return errors.New("cache item not found")
+	}
+
+	bytesData, ok := data.([]byte)
+	if !ok {
+		return errors.New("cache data is not a byte slice")
+	}
+	if err := json.Unmarshal(bytesData, &c); err != nil {
+		return errors.New("unmarshal cache data")
+	}
+
+	c.Assets = append(c.Assets, dataToAdd.Assets...)
+
+	jsonBytes, marshalErr := json.Marshal(c)
+	if marshalErr != nil {
+		return marshalErr
+	}
+
+	// replace with cache minus used asset
+	cache.Set(key, jsonBytes, deviceDuration, cacheDuration)
+
+	return nil
 }

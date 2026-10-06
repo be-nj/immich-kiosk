@@ -69,10 +69,9 @@ templ Video(viewData common.ViewData, secret string, JSScripts ...components.Ass
 		}
 	</div>
 	@partials.RenderHistory(viewData)
-	if viewData.ShowMoreInfo {
+	if viewData.MoreInfo.Display {
 		@partials.RenderMoreInfo(viewData, secret)
 	}
-
 	for _, s := range JSScripts {
 		@templ.JSFuncCall(s.FuncName, s.Args...)
 	}

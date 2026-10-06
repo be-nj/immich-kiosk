@@ -3,13 +3,13 @@ package partials
 import (
 	"charm.land/log/v2"
 	"encoding/json"
+	"fmt"
 	"github.com/damongolding/immich-kiosk/internal/common"
 	"github.com/damongolding/immich-kiosk/internal/config"
 	"github.com/damongolding/immich-kiosk/internal/i18n"
 	"github.com/damongolding/immich-kiosk/internal/webhooks"
 	"net/url"
 	"time"
-	"fmt"
 )
 
 func webhookAttributes(viewData common.ViewData, event, secret string) templ.Attributes {
@@ -36,8 +36,6 @@ func webhookAttributes(viewData common.ViewData, event, secret string) templ.Att
 
 	attr := templ.Attributes{
 		"hx-headers": headerStr,
-		"hx-include": ".kiosk-history--entry",
-		"hx-vals":    "js:{...kiosk.clientData()}",
 	}
 
 	if validEvent {
@@ -53,12 +51,12 @@ func prevAssetTrigger(c config.Config) string {
 	var throttle float32
 
 	switch c.Transition {
-		case "push-right", "push-left", "push-down", "push-up", "push-random":
-			throttle = c.PushTransitionDuration
-		case "slide-right", "slide-left", "slide-down", "slide-up", "slide-random":
-			throttle = c.SlideTransitionDuration
-		default:
-			throttle = 1.0
+	case "push-right", "push-left", "push-down", "push-up", "push-random":
+		throttle = c.PushTransitionDuration
+	case "slide-right", "slide-left", "slide-down", "slide-up", "slide-random":
+		throttle = c.SlideTransitionDuration
+	default:
+		throttle = 1.0
 	}
 
 	return fmt.Sprintf(`
@@ -79,7 +77,6 @@ templ Menu(viewData common.ViewData, queries url.Values, secret string) {
 			id="navigation-interaction-area--previous-asset"
 			hx-post="/asset/previous"
 			hx-target="#kiosk"
-			hx-include=".kiosk-history--entry"
 			hx-trigger={ prevAssetTrigger(viewData.Config) }
 			hx-on::before-request="kiosk.checkHistoryExists(event)"
 			hx-on::after-swap="kiosk.cleanupFrames(), kiosk.releaseRequestLock()"
@@ -96,7 +93,7 @@ templ Menu(viewData common.ViewData, queries url.Values, secret string) {
 	</nav>
 	<div id="more-info" hx-swap-oob="true"></div>
 	if len(viewData.Redirects.Items) > 0 || viewData.Redirects.ShowAlbums {
-		@Redirects(viewData.Config , viewData.Redirects, queries)
+		@Redirects(viewData.Config, viewData.Redirects, queries)
 	}
 	<nav class={ "navigation navigation-hidden", "navigation-"+viewData.MenuPosition }>
 		<div class="navigation--media-buttons rounded">
@@ -134,7 +131,7 @@ templ Menu(viewData common.ViewData, queries url.Values, secret string) {
 				</svg>
 			</div>
 		}
-		if viewData.ShowMoreInfo {
+		if viewData.MoreInfo.Display {
 			<div class="navigation--item navigation--more-info rounded" title={ t("more_info") }>
 				<svg role="img" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 512" width="192" height="512">
 					<!--!Font Awesome Free 6.7.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2024 Fonticons, Inc.-->
