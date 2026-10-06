@@ -41,6 +41,8 @@ type Stacks []Stack
 //
 // A stack listing that cannot be fetched returns nil, which lets every asset
 // through. A slideshow repeating a moment beats a slideshow showing nothing.
+// An API key without the stack.read permission lands here on every call, so the
+// filter turns itself off rather than failing the request.
 func (a *Asset) stackChildIDs(requestID, deviceID string) map[string]bool {
 	var stacks Stacks
 
