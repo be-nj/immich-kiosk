@@ -61,3 +61,6 @@ data/
 
 
 docker-compose-local.yaml
+
+# Test outputs
+tests/runs/
